@@ -3,6 +3,7 @@ import * as crypto from "@node-lightning/crypto";
 
 import * as ex1 from "./ex1";
 import * as ex2 from "./ex2";
+import * as ex3 from "./ex3";
 
 const method = process.argv[2] || "ex1";
 
@@ -40,6 +41,11 @@ switch (method) {
     builder = ex2.build;
     reader = ex2.read;
     break;
+  }
+  case "ex3": {
+    title = "Payload Encryption"
+    builder = ex3.build;
+    reader = ex3.read;
   }
 }
 
