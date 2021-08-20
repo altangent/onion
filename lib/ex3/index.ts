@@ -1,4 +1,5 @@
-import crypto from "crypto";
+import * as crypto from "@node-lightning/crypto";
+import crypto1 from "crypto";
 import * as crypto2 from "@node-lightning/crypto";
 import { BufferReader, BufferWriter } from "@node-lightning/bufio";
 
@@ -63,17 +64,18 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
   console.log("processed hmac ", calcedHmac.toString("hex"));
 
   // Fail the packet if the HMAC is not the expected value!
-  if (!crypto.timingSafeEqual(hmac, calcedHmac)) {
+  if (!crypto1.timingSafeEqual(hmac, calcedHmac)) {
     throw new Error("HMAC failed");
   }
 
   // Decrypt the payload using shared secret 
-  const decrypt_payload = crypto2.ccpDecrypt(
-    sharedSecret,
-    Buffer.alloc(12, 0x00),          // this nonce value can be randomised and stored in an array to access it later.   
-    Buffer.alloc(1, 0x00),          // not sure what to pass in associated data?
-    payload
-  );
+  // const decrypt_payload = crypto2.ccpDecrypt(
+  //   sharedSecret,
+  //   Buffer.alloc(12, 0x00),          // this nonce value can be randomised and stored in an array to access it later.   
+  //   Buffer.alloc(1, 0x00),          // not sure what to pass in associated data?
+  //   payload
+  // );
+  const decrypt_payload = crypto.chachaDecrypt(sharedSecret,Buffer.alloc(16),payload);
   // Parse the payload
   const payloadReader = new BufferReader(decrypt_payload);
   const hopDataLen = payloadReader.readBigSize();
@@ -111,7 +113,7 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
  *
  * Simplifications are:
  * - Reuse of the same ephemeral key at each hop
- * - Onions are not encrypted
+ * - Payload encrypted
  * - Use of variable length onion (no sphinx)
  *
  * @param info - data to wrap in onion for each hop
@@ -179,13 +181,14 @@ export function build(
     const hopPayload = hopPayloadWriter.toBuffer();
     console.log("payload", hopPayload.toString("hex"));
 
-    // Lets encrypt the payload
-    const enc = crypto2.ccpEncrypt(
-      sharedSecret,
-      Buffer.alloc(12, 0x00),
-      Buffer.alloc(1, 0x00),
-      hopPayload
-    );
+    // // Lets encrypt the payload
+    // const enc = crypto2.ccpEncrypt(
+    //   sharedSecret,
+    //   Buffer.alloc(12, 0x00),
+    //   Buffer.alloc(1, 0x00),
+    //   hopPayload
+    // );
+    const enc = crypto.chachaEncrypt(sharedSecret,Buffer.alloc(16),hopPayload);
     console.log("encrypted_payload  ", enc.toString("hex"));
 
     // This next part constructs the packet that will contain the data
