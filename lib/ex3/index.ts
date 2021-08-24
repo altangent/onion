@@ -27,26 +27,25 @@ import { BufferReader, BufferWriter } from "@node-lightning/bufio";
  * @param nodeKeys
  */
 export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
-  console.log("packet  ", packet.toString("hex"));
+  console.log("packet           ", packet.toString("hex"));
 
   const packetReader = new BufferReader(packet);
 
   // Read the version, we should always expect 0x00
   const version = packetReader.readUInt8();
-  console.log("packet version ", version);
+  console.log("packet version   ", version);
 
   // Read the ephemeral point, in this example we reuse the same point
   // which would allow correlation of the onion.
   const ephemeralPoint = packetReader.readBytes(33);
-  console.log("packet ep      ", ephemeralPoint.toString("hex"));
+  console.log("packet ep        ", ephemeralPoint.toString("hex"));
 
   // Read the payload from the packet
   const payload = packetReader.readBytes(packet.length - 33 - 32 - 1);
-  console.log("packet payload ", payload.toString("hex"));
 
   // Read the HMAC which is the final 32 bytes
   const hmac = packetReader.readBytes();
-  console.log("packet hmac    ", hmac.toString("hex"));
+  console.log("packet hmac      ", hmac.toString("hex"));
 
   // Construct a shared secret using ECDH using the ephemeral point and
   // our public key.
@@ -60,7 +59,7 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
     sharedSecret,
     packet.slice(0, packet.length - 32)
   );
-  console.log("processed hmac ", calcedHmac.toString("hex"));
+  console.log("processed hmac   ", calcedHmac.toString("hex"));
 
   // Fail the packet if the HMAC is not the expected value!
   if (!crypto1.timingSafeEqual(hmac, calcedHmac)) {
@@ -78,6 +77,8 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
     ? Buffer.alloc(0)
     : payloadReader.readBytes();
 
+  console.log("packet payload   ", payload.toString("hex"));
+  console.log("decrypt payload  ", decrypt_payload.toString("hex"));
   console.log("payload data     ", hopData.toString("hex"));
   console.log("payload next hmac", nextHmac.toString("hex"));
   console.log("payload next data", nextPayload.toString("hex"));
@@ -144,12 +145,12 @@ export function build(
   // onions. The outer onion HMAC will include the inner onion HMAC.
   while (info.length) {
     const nodeId = nodeIds.pop();
-    console.log("nodeId ", nodeId.toString("hex"));
+    console.log("nodeId            ", nodeId.toString("hex"));
 
     // creates a shared secret based on the node's publicId and the secret
     // using ECDH
     const sharedSecret = crypto2.ecdh(nodeId, ephemeralSecret);
-    console.log("ss     ", sharedSecret.toString("hex"));
+    console.log("ss                ", sharedSecret.toString("hex"));
 
     // In this example, the hopPayload includes the current hop's
     // information followed by the HMAC for the next packet, followed
@@ -160,27 +161,27 @@ export function build(
     // Write the length of data in this hop (excludes the HMAC, though
     // it could).
     hopPayloadWriter.writeBigSize(hopData.length);
-    console.log("datalen", hopData.length);
+    console.log("datalen           ", hopData.length);
 
     // Write the hop's data
     hopPayloadWriter.writeBytes(hopData);
-    console.log("data   ", hopData.toString("hex"));
+    console.log("data              ", hopData.toString("hex"));
 
     // Write the HMAC used in the packet for the next hop. Confusingly,
     // this is the LAST HMAC we built, since we're going in reverse order.
     hopPayloadWriter.writeBytes(lastHmac);
-    console.log("hmac   ", lastHmac.toString("hex"));
+    console.log("hmac              ", lastHmac.toString("hex"));
 
     // Write the payload for the next hop
     hopPayloadWriter.writeBytes(lastPayload);
-    console.log("wrapped", lastPayload.toString("hex"));
+    console.log("wrapped data      ", lastPayload.toString("hex"));
 
     const hopPayload = hopPayloadWriter.toBuffer();
-    console.log("payload", hopPayload.toString("hex"));
+    console.log("raw payload       ", hopPayload.toString("hex"));
 
     // // Lets encrypt the payload
     const enc = crypto2.chachaEncrypt(sharedSecret,Buffer.alloc(16),hopPayload);
-    console.log("encrypted_payload  ", enc.toString("hex"));
+    console.log("encrypted_payload ", enc.toString("hex"));
 
     // This next part constructs the packet that will contain the data
     // we just created. This packet will be HMAC'd and used in the next
