@@ -1,4 +1,3 @@
-import * as crypto from "@node-lightning/crypto";
 import crypto1 from "crypto";
 import * as crypto2 from "@node-lightning/crypto";
 import { BufferReader, BufferWriter } from "@node-lightning/bufio";
@@ -74,7 +73,7 @@ export function read(
   }
 
   // Decrypt the payload using shared secret
-  const decrypt_payload = crypto.chachaDecrypt(
+  const decrypt_payload = crypto2.chachaDecrypt(
     sharedSecret,
     Buffer.alloc(16),
     payload
@@ -166,12 +165,12 @@ export function build(
     console.log("ep   ", ephemeralPoint.toString("hex"));
 
     // The blinding factor is used to construct a new ephemeral key from the existing secret
-    let blindFactor = crypto.sha256(
+    let blindFactor = crypto2.sha256(
       Buffer.concat([ephemeralPoint, sharedSecret])
     );
 
     // Ephemeral key which will be used to compute shared secret for the next hop
-    ep_key = crypto.privateKeyMul(ep_key, blindFactor);
+    ep_key = crypto2.privateKeyMul(ep_key, blindFactor);
 
     // In this example, the hopPayload includes the current hop's
     // information followed by the HMAC for the next packet, followed
@@ -201,7 +200,7 @@ export function build(
     console.log("raw payload        ", hopPayload.toString("hex"));
 
     // // Lets encrypt the payload
-    const enc = crypto.chachaEncrypt(
+    const enc = crypto2.chachaEncrypt(
       sharedSecret,
       Buffer.alloc(16),
       hopPayload

@@ -34,16 +34,6 @@ export function read(
 
   const packetReader = new BufferReader(packet);
 
-  // Read the ephemeral pts buffer len
-  const all_ep_len = 33*(nodeKeys.length); 
-
-  // Read ep_pts buffer
-  let all_ep = packetReader.readBytes(all_ep_len);
-  console.log("all_ep_key     ",all_ep.toString("hex"));
-
-  // Next ep buffer
-  let next_ep = all_ep.slice(0,all_ep_len-33);
-
   // Read the version, we should always expect 0x00
   const version = packetReader.readUInt8();
   console.log("packet version ", version);
@@ -53,7 +43,7 @@ export function read(
   console.log("ep_from_packet            ", ephemeralPoint.toString("hex"));
 
   // Read the payload from the packet
-  const payload = packetReader.readBytes(packet.length -32-33-1-all_ep_len);
+  const payload = packetReader.readBytes(packet.length -32-33-1);
   console.log("packet payload ", payload.toString("hex"));
 
   // Read the HMAC which is the final 32 bytes
@@ -71,7 +61,7 @@ export function read(
   // the HMAC can't include itself haha.
   const calcedHmac = crypto2.hmac(
     sharedSecret,
-    packet.slice(all_ep_len, packet.length - 32)
+    packet.slice(0, packet.length - 32)
   );
   console.log("processed hmac ", calcedHmac.toString("hex"));
 
@@ -105,12 +95,13 @@ export function read(
   if (!nextPayload.length) {
     return;
   }
-
+  let blindFactor = crypto2.sha256(Buffer.concat([ephemeralPoint, sharedSecret]))
+  let next_ep_pt = crypto2.publicKeyTweakMul(ephemeralPoint,blindFactor,true);
+  
   // Otherwise, return the next packet
   const packetWriter = new BufferWriter();
-  packetWriter.writeBytes(next_ep);
   packetWriter.writeUInt8(0);
-  packetWriter.writeBytes(next_ep.slice(next_ep.length-33,next_ep.length));
+  packetWriter.writeBytes(next_ep_pt);
   packetWriter.writeBytes(nextPayload);
   packetWriter.writeBytes(nextHmac);
   return packetWriter.toBuffer();
@@ -139,11 +130,23 @@ export function build(
   ephemeralSecret: Buffer,
   nodeIds: Buffer[],
 ): Buffer {
+
   // Ephemeral key :
   let ep_key = ephemeralSecret;
 
-  // Ephemeral pts buffer :
-  let epWriter = new BufferWriter();
+  // Lets precompute the ep_keys in forward pass :
+  let ep_key_buff: Buffer[] =[];
+  for(let keys of nodeIds){
+    ep_key_buff.push(ep_key);
+    let nodeId = keys;
+    const sharedSecret = crypto2.ecdh(nodeId, ep_key);
+    let ephemeralPoint = crypto2.getPublicKey(ep_key, true);
+    console.log("ep     ",ephemeralPoint.toString("hex"))
+    let blindFactor = crypto2.sha256(
+      Buffer.concat([ephemeralPoint, sharedSecret])
+    );
+    ep_key = crypto2.privateKeyMul(ep_key, blindFactor);
+  }
 
   // Stores the last processed (inner) HMAC for use in packet
   // construction. Initially this is 0x00*32
@@ -163,6 +166,7 @@ export function build(
     const nodeId = nodeIds.pop();
     console.log("nodeId ", nodeId.toString("hex"));
 
+    ep_key = ep_key_buff.pop();
     // creates a shared secret based on the node's publicId and the secret
     // using ECDH
     const sharedSecret = crypto2.ecdh(nodeId, ep_key);
@@ -170,18 +174,8 @@ export function build(
 
     // Ephemeral Point based on ep_key (ep rotation)
     let ephemeralPoint = crypto2.getPublicKey(ep_key, true);
-
-    // Buffer maintaining ep_pts which will be later used for ep_pt rotation
-    epWriter.writeBytes(ephemeralPoint);
-
-    // The blinding factor is used to construct a new ephemeral key from the existing secret
-    let blindFactor = crypto2.sha256(
-      Buffer.concat([ephemeralPoint, sharedSecret])
-    );
-
-    // Ephemeral key which will be used to compute shared secret for the next hop
-    ep_key = crypto2.privateKeyMul(ep_key, blindFactor);
-  
+    console.log("ep     ",ephemeralPoint.toString("hex"))
+      
     // In this example, the hopPayload includes the current hop's
     // information followed by the HMAC for the next packet, followed
     // by the remainder of the payload.
@@ -242,5 +236,5 @@ export function build(
 
   // Finally we return the complete packet which includes ep rotations, last
   // packet and the HMAC for it
-  return Buffer.concat([epWriter.toBuffer(),lastPacket, lastHmac]);
+  return Buffer.concat([lastPacket, lastHmac]);
 }

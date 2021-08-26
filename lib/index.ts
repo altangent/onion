@@ -60,17 +60,20 @@ switch (method) {
     title = "Payload Encryption";
     builder = ex3.build;
     reader = ex3.read;
+    break;
   }
   case "ex4": {
     title = "Ephemeral Rotation using Buff Array";
     builder = ex4.build;
     reader = ex4.read;
+    break;
   }
 
   case "ex5":{
     title = "Ephemeral key Rotation inside the packet";
     builder = ex5.build;
     reader = ex5.read;
+    break;
   }
 }
 
