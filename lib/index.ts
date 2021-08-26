@@ -4,6 +4,8 @@ import * as crypto from "@node-lightning/crypto";
 import * as ex1 from "./ex1";
 import * as ex2 from "./ex2";
 import * as ex3 from "./ex3";
+import * as ex4 from "./ex4";
+import * as ex5 from "./ex5";
 
 const method = process.argv[2] || "ex1";
 
@@ -23,11 +25,23 @@ const data = [
   Buffer.alloc(4, 0x44),
 ];
 
+let ep_points = [];
+
 const seed = Buffer.alloc(32, 0x05);
 
 let title: string;
-let builder: (version: number, data: Buffer[], seed?: Buffer, nodeIds?: Buffer[]) => Buffer;
-let reader: (packet: Buffer, nodeKeys?: Buffer[]) => Buffer;
+let builder: (
+  version: number,
+  data: Buffer[],
+  seed?: Buffer,
+  nodeIds?: Buffer[],
+  ep_points?: Buffer[]
+) => Buffer;
+let reader: (
+  packet: Buffer,
+  nodeKeys?: Buffer[],
+  ep_points?: Buffer[]
+) => Buffer;
 
 switch (method) {
   case "ex1": {
@@ -43,27 +57,42 @@ switch (method) {
     break;
   }
   case "ex3": {
-    title = "Payload Encryption"
+    title = "Payload Encryption";
     builder = ex3.build;
     reader = ex3.read;
+  }
+  case "ex4": {
+    title = "Ephemeral Rotation using Buff Array";
+    builder = ex4.build;
+    reader = ex4.read;
+  }
+
+  case "ex5":{
+    title = "Ephemeral key Rotation inside the packet";
+    builder = ex5.build;
+    reader = ex5.read;
   }
 }
 
 console.log(title);
-console.log("==================================================================\n");
+console.log(
+  "==================================================================\n"
+);
 
 console.log("Building");
 console.log("");
 
 const version = 0;
-let packetBuf = builder(version, data, seed, nodeIds);
+let packetBuf = builder(version, data, seed, nodeIds, ep_points);
 console.log("Final onion:");
 console.log(packetBuf.toString("hex"));
 
-console.log("------------------------------------------------------------------\n");
+console.log(
+  "------------------------------------------------------------------\n"
+);
 console.log("Reading");
 console.log("");
 
 do {
-  packetBuf = reader(packetBuf, nodeSecrets);
+  packetBuf = reader(packetBuf, nodeSecrets, ep_points);
 } while (packetBuf && packetBuf.length);
