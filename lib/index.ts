@@ -5,7 +5,6 @@ import * as ex1 from "./ex1";
 import * as ex2 from "./ex2";
 import * as ex3 from "./ex3";
 import * as ex4 from "./ex4";
-import * as ex5 from "./ex5";
 
 const method = process.argv[2] || "ex1";
 
@@ -24,8 +23,6 @@ const data = [
   Buffer.alloc(4, 0x33),
   Buffer.alloc(4, 0x44),
 ];
-
-let ep_points = [];
 
 const seed = Buffer.alloc(32, 0x05);
 
@@ -63,16 +60,9 @@ switch (method) {
     break;
   }
   case "ex4": {
-    title = "Ephemeral Rotation using Buff Array";
+    title = "Ephemeral Key Rotation";
     builder = ex4.build;
     reader = ex4.read;
-    break;
-  }
-
-  case "ex5":{
-    title = "Ephemeral key Rotation inside the packet";
-    builder = ex5.build;
-    reader = ex5.read;
     break;
   }
 }
@@ -86,7 +76,7 @@ console.log("Building");
 console.log("");
 
 const version = 0;
-let packetBuf = builder(version, data, seed, nodeIds, ep_points);
+let packetBuf = builder(version, data, seed, nodeIds);
 console.log("Final onion:");
 console.log(packetBuf.toString("hex"));
 
@@ -97,5 +87,5 @@ console.log("Reading");
 console.log("");
 
 do {
-  packetBuf = reader(packetBuf, nodeSecrets, ep_points);
+  packetBuf = reader(packetBuf, nodeSecrets);
 } while (packetBuf && packetBuf.length);

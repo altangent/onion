@@ -29,7 +29,6 @@ import { BufferReader, BufferWriter } from "@node-lightning/bufio";
 export function read(
   packet: Buffer,
   nodeKeys: Buffer[],
-  ep_points: Buffer[]
 ): Buffer {
   console.log("packet  ", packet.toString("hex"));
 
@@ -41,16 +40,15 @@ export function read(
 
   // Read the ephemeral point, in this example we rotate the ephemeral point
   const ephemeralPoint = packetReader.readBytes(33);
-  console.log("ep_from_packet     ", ephemeralPoint.toString("hex"));
-  ep_points.pop();
+  console.log("ep_from_packet            ", ephemeralPoint.toString("hex"));
 
   // Read the payload from the packet
-  const payload = packetReader.readBytes(packet.length - 33 - 32 - 1);
-  console.log("packet payload   ", payload.toString("hex"));
+  const payload = packetReader.readBytes(packet.length -32-33-1);
+  console.log("packet payload ", payload.toString("hex"));
 
   // Read the HMAC which is the final 32 bytes
   const hmac = packetReader.readBytes();
-  console.log("packet hmac      ", hmac.toString("hex"));
+  console.log("packet hmac    ", hmac.toString("hex"));
 
   // Construct a shared secret using ECDH using the ephemeral point and
   // our public key.
@@ -65,7 +63,7 @@ export function read(
     sharedSecret,
     packet.slice(0, packet.length - 32)
   );
-  console.log("processed hmac     ", calcedHmac.toString("hex"));
+  console.log("processed hmac ", calcedHmac.toString("hex"));
 
   // Fail the packet if the HMAC is not the expected value!
   if (!crypto1.timingSafeEqual(hmac, calcedHmac)) {
@@ -97,11 +95,16 @@ export function read(
   if (!nextPayload.length) {
     return;
   }
+  // blindFactor used in ep rotation
+  const blindFactor = crypto2.sha256(Buffer.concat([ephemeralPoint, sharedSecret]))
 
+  // Next ep_pt derived using current ephemeralPoint and blindFactor
+  const next_ep_pt = crypto2.publicKeyTweakMul(ephemeralPoint,blindFactor,true);
+  
   // Otherwise, return the next packet
   const packetWriter = new BufferWriter();
   packetWriter.writeUInt8(0);
-  packetWriter.writeBytes(ep_points[ep_points.length - 1]);
+  packetWriter.writeBytes(next_ep_pt);
   packetWriter.writeBytes(nextPayload);
   packetWriter.writeBytes(nextHmac);
   return packetWriter.toBuffer();
@@ -129,10 +132,23 @@ export function build(
   info: Buffer[],
   ephemeralSecret: Buffer,
   nodeIds: Buffer[],
-  ep_points: Buffer[]
 ): Buffer {
+
   // Ephemeral key :
   let ep_key = ephemeralSecret;
+
+  // Lets precompute the ep_keys in forward pass :
+  let ep_key_buff: Buffer[] =[];
+  for(let keys of nodeIds){
+    ep_key_buff.push(ep_key);
+    let nodeId = keys;
+    const sharedSecret = crypto2.ecdh(nodeId, ep_key);
+    let ephemeralPoint = crypto2.getPublicKey(ep_key, true);
+    let blindFactor = crypto2.sha256(
+      Buffer.concat([ephemeralPoint, sharedSecret])
+    );
+    ep_key = crypto2.privateKeyMul(ep_key, blindFactor);
+  }
 
   // Stores the last processed (inner) HMAC for use in packet
   // construction. Initially this is 0x00*32
@@ -152,6 +168,7 @@ export function build(
     const nodeId = nodeIds.pop();
     console.log("nodeId ", nodeId.toString("hex"));
 
+    ep_key = ep_key_buff.pop();
     // creates a shared secret based on the node's publicId and the secret
     // using ECDH
     const sharedSecret = crypto2.ecdh(nodeId, ep_key);
@@ -159,19 +176,8 @@ export function build(
 
     // Ephemeral Point based on ep_key (ep rotation)
     let ephemeralPoint = crypto2.getPublicKey(ep_key, true);
-
-    // Buffer maintaining ep_pts which will be later used for ep_pt rotation
-    ep_points.push(ephemeralPoint);
-    console.log("ep   ", ephemeralPoint.toString("hex"));
-
-    // The blinding factor is used to construct a new ephemeral key from the existing secret
-    let blindFactor = crypto2.sha256(
-      Buffer.concat([ephemeralPoint, sharedSecret])
-    );
-
-    // Ephemeral key which will be used to compute shared secret for the next hop
-    ep_key = crypto2.privateKeyMul(ep_key, blindFactor);
-
+    console.log("ep     ",ephemeralPoint.toString("hex"))
+      
     // In this example, the hopPayload includes the current hop's
     // information followed by the HMAC for the next packet, followed
     // by the remainder of the payload.
@@ -181,16 +187,16 @@ export function build(
     // Write the length of data in this hop (excludes the HMAC, though
     // it could).
     hopPayloadWriter.writeBigSize(hopData.length);
-    console.log("datalen        ", hopData.length);
+    console.log("datalen", hopData.length);
 
     // Write the hop's data
     hopPayloadWriter.writeBytes(hopData);
-    console.log("data       ", hopData.toString("hex"));
+    console.log("data   ", hopData.toString("hex"));
 
     // Write the HMAC used in the packet for the next hop. Confusingly,
     // this is the LAST HMAC we built, since we're going in reverse order.
     hopPayloadWriter.writeBytes(lastHmac);
-    console.log("hmac       ", lastHmac.toString("hex"));
+    console.log("hmac   ", lastHmac.toString("hex"));
 
     // Write the payload for the next hop
     hopPayloadWriter.writeBytes(lastPayload);
@@ -199,13 +205,13 @@ export function build(
     const hopPayload = hopPayloadWriter.toBuffer();
     console.log("raw payload        ", hopPayload.toString("hex"));
 
-    // // Lets encrypt the payload
+    // Lets encrypt the payload
     const enc = crypto2.chachaEncrypt(
       sharedSecret,
       Buffer.alloc(16),
       hopPayload
     );
-    console.log("encrypted_payload        ", enc.toString("hex"));
+    console.log("encrypted_payload  ", enc.toString("hex"));
 
     // This next part constructs the packet that will contain the data
     // we just created. This packet will be HMAC'd and used in the next
@@ -230,7 +236,7 @@ export function build(
     console.log("");
   }
 
-  // Finally we return the complete packet which includes the last
+  // Finally we return the complete packet which includes ep rotations, last
   // packet and the HMAC for it
   return Buffer.concat([lastPacket, lastHmac]);
 }
