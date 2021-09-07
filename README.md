@@ -11,4 +11,6 @@ npm install
 ```
 npm start ex1
 npm start ex2
+npm start ex3
+npm start ex4
 ```
