@@ -1,67 +1,70 @@
 import { BufferReader, BufferWriter } from "@node-lightning/bufio";
-import { OnionPacket } from "../OnionPacket";
-import { OnionPayload } from "../OnionPayload";
+import { Packet } from "../Types";
 
 /**
  * Reads info from the packet. No verification of information is
- * performed. This code simply reads from the front of the packet,
- * removes its information and then forwards on the remainder of the
- * packet.
+ * performed.
  *
  * Any node could tamper with information along the way. And since there
  * is no decryption, anyone can see the information (no confidentiality).
  *
+ * This example uses a fixed payload length of 33-bytes which is the
+ * public key of the next node.
+ *
  * @param packet
  */
-export function read(packet: Buffer): Buffer {
+export function read(packet: Buffer): Packet {
   // Read the packet which usually is constructed as:
-  // version|eph_key|payload|hmac
+  // version|payload
 
   const packetReader = new BufferReader(packet);
-  console.log("read packet: ", packet.toString("hex"));
+  console.log("packet:        ", packet.toString("hex"));
 
   // read version
   const version = packetReader.readUInt8(); // expect version 1
-  console.log("version:     ", version);
+  console.log("version:       ", version);
 
   // NO ephemeral key
 
   // read payload
   const payload = packetReader.readBytes();
-  console.log("payload:     ", payload.toString("hex"));
-
-  // NO HMAC
+  console.log("payload:       ", payload.toString("hex"));
 
   // Next we read the payload which is constructed as:
-  // len|data|next_data|next_hmac
+  // data|next_data
   const payloadReader = new BufferReader(payload);
 
-  // read len
-  const len = payloadReader.readUInt8();
-  console.log("payload len: ", len);
-
   // read data
-  const data = payloadReader.readBytes(len);
-  console.log("payload data:", data.toString("hex"));
+  const nextPubKey = payloadReader.readBytes(33);
+  console.log("payload pubkey:", nextPubKey.toString("hex"));
 
   // read next payload
-  const nextPayload = payloadReader.eof ? Buffer.alloc(0) : payloadReader.readBytes();
-  console.log("next payload:", nextPayload.toString("hex"));
-
-  // NO NEXT HMAC
+  const nextPayload = payloadReader.eof
+    ? Buffer.alloc(0)
+    : payloadReader.readBytes();
+  console.log("payload next:  ", nextPayload.toString("hex"));
   console.log("");
 
-  // Abort when we don't have any more data
-  if (!nextPayload.length) {
-    return;
-  }
+  return {
+    version,
+    payload: {
+      nextPubKey,
+      nextPayload,
+    },
+  };
+}
 
+/**
+ * Constructs a raw packet to forward to the next node in the hop. This
+ * example simply constructs a new packet using the next payload.
+ * @param received
+ * @returns
+ */
+export function forward(received: Packet): Buffer {
   // Return the next packet
   const nextPacket = new BufferWriter();
-  nextPacket.writeUInt8(version);
-  // nextPacket.writeBytes(ephemeralPoint); - no ephemeral point
-  nextPacket.writeBytes(nextPayload);
-  // nextPacket.writeBytes(nextHmac); - no hmac
+  nextPacket.writeUInt8(received.version);
+  nextPacket.writeBytes(received.payload.nextPayload);
   return nextPacket.toBuffer();
 }
 
@@ -77,7 +80,7 @@ export function read(packet: Buffer): Buffer {
  *
  * @param data - data to wrap in onion for each hop
  */
- export function build(version: number, data: Buffer[]): Buffer {
+export function build(version: number, data: Buffer[]): Buffer {
   let lastHopData: Buffer = Buffer.alloc(0);
 
   // Iterate in reverse order to construct our onion from the center
@@ -91,13 +94,9 @@ export function read(packet: Buffer): Buffer {
     // Prepend the current hop information to the existing information
     const w = new BufferWriter();
 
-    // write length
-    w.writeBigSize(currentHopData.length);
-    console.log("data size:", currentHopData.length);
-
     // write data
     w.writeBytes(currentHopData);
-    console.log("data:     ", currentHopData.toString("hex"));
+    console.log("hop data: ", currentHopData.toString("hex"));
 
     // write prior data
     w.writeBytes(lastHopData);

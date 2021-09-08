@@ -1,6 +1,7 @@
 import crypto1 from "crypto";
 import * as crypto2 from "@node-lightning/crypto";
 import { BufferReader, BufferWriter } from "@node-lightning/bufio";
+import { Packet } from "../Types";
 
 /**
  * This reads a simplified onion packet. Simplifications are:
@@ -12,21 +13,20 @@ import { BufferReader, BufferWriter } from "@node-lightning/bufio";
  * - [1]   - version
  * - [33]  - ephemeral point (compressed secp256k1)
  * - [var] - variable length payload (Encrypted)
- * - [32]  - HMAC
+ * - [32]  - HMAC for the packet
  *
- * From there, the payload is decrypted and then parsed:
- * - [1]   - data length
- * - [var] - data used by this hop
- * - [var] - data sent to next hop
+ * Each packet has a variable length payload that is decrypted and
+ * parsed. After decryption the node uses the first 65-bytes to
+ * construct a forwarding packet for the remaining bytes. The remaining
+ * bytes are encrypted using a key accessible to the forwarding node and
+ * are unreadable by the current node.
+ * - [33]  - public key for the next node
  * - [32]  - HMAC covering the next packet constuction
- *
- * Once this information is parsed, we construct and return the next
- * packet.
- *
+ * - [var] - encrypted data sent to next hop
  * @param packet
- * @param nodeKeys
+ * @param nodeKey
  */
-export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
+export function read(packet: Buffer, nodeKey: Buffer): Packet {
   console.log("packet           ", packet.toString("hex"));
 
   const packetReader = new BufferReader(packet);
@@ -49,7 +49,6 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
 
   // Construct a shared secret using ECDH using the ephemeral point and
   // our public key.
-  const nodeKey = nodeKeys.shift();
   const sharedSecret = crypto2.ecdh(ephemeralPoint, nodeKey);
 
   // Compute an HMAC using the shared secret and the packet (less the
@@ -66,12 +65,16 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
     throw new Error("HMAC failed");
   }
 
-  // Decrypt the payload using shared secret 
-  const decrypt_payload = crypto2.chachaDecrypt(sharedSecret,Buffer.alloc(16),payload);
+  // Decrypt the payload using shared secret
+  const decrypt_payload = crypto2.chachaDecrypt(
+    sharedSecret,
+    Buffer.alloc(16),
+    payload
+  );
+
   // Parse the payload
   const payloadReader = new BufferReader(decrypt_payload);
-  const hopDataLen = payloadReader.readBigSize();
-  const hopData = payloadReader.readBytes(Number(hopDataLen));
+  const nextPubKey = payloadReader.readBytes(33);
   const nextHmac = payloadReader.readBytes(32);
   const nextPayload = payloadReader.eof
     ? Buffer.alloc(0)
@@ -79,34 +82,48 @@ export function read(packet: Buffer, nodeKeys: Buffer[]): Buffer {
 
   console.log("packet payload   ", payload.toString("hex"));
   console.log("decrypt payload  ", decrypt_payload.toString("hex"));
-  console.log("payload data     ", hopData.toString("hex"));
+  console.log("payload pubkey   ", nextPubKey.toString("hex"));
   console.log("payload next hmac", nextHmac.toString("hex"));
   console.log("payload next data", nextPayload.toString("hex"));
 
   console.log("");
 
-  // Abort when we don't have any more data
-  if (!nextPayload.length) {
-    return;
-  }
+  return {
+    version,
+    ephemeralPoint,
+    payload: {
+      nextPubKey,
+      nextPayload,
+      nextHmac,
+    },
+  };
+}
 
-  // Otherwise, return the next packet
+/**
+ * Creates a new packet from a recieved packet. In this example, the
+ * same ephemeral point is used for each example. The constructed packet
+ * contains the payload and HMAC that will be read and verified by the
+ * next node.
+ * @param received
+ * @returns
+ */
+export function forward(received: Packet): Buffer {
   const packetWriter = new BufferWriter();
-  packetWriter.writeUInt8(0);
-  packetWriter.writeBytes(ephemeralPoint);
-  packetWriter.writeBytes(nextPayload);
-  packetWriter.writeBytes(nextHmac);
+  packetWriter.writeUInt8(received.version);
+  packetWriter.writeBytes(received.ephemeralPoint);
+  packetWriter.writeBytes(received.payload.nextPayload);
+  packetWriter.writeBytes(received.payload.nextHmac);
   return packetWriter.toBuffer();
 }
 
 /**
- * Similar to previous example this onion construction also adds an HMAC to 
- * each layer in reverse order. The HMAC for the inner layer must be 
- * supplied to the outer layer. The outer layer uses the inner layers HMAC 
- * as part of the packet construction. In addition to that we have 
+ * Similar to previous example this onion construction also adds an HMAC to
+ * each layer in reverse order. The HMAC for the inner layer must be
+ * supplied to the outer layer. The outer layer uses the inner layers HMAC
+ * as part of the packet construction. In addition to that we have
  * encrypted the payload using `chacha20` with corresponding shared secret
  * created for that hop. This encryption is done to ensure the confidentiality
- * of the payload during transmission. Therefore, instead of payload data 
+ * of the payload during transmission. Therefore, instead of payload data
  * `encrypted_payload` is used for packet generation.
  *
  * Simplifications are:
@@ -158,11 +175,6 @@ export function build(
     const hopPayloadWriter = new BufferWriter();
     const hopData = info.pop();
 
-    // Write the length of data in this hop (excludes the HMAC, though
-    // it could).
-    hopPayloadWriter.writeBigSize(hopData.length);
-    console.log("datalen           ", hopData.length);
-
     // Write the hop's data
     hopPayloadWriter.writeBytes(hopData);
     console.log("data              ", hopData.toString("hex"));
@@ -180,7 +192,11 @@ export function build(
     console.log("raw payload       ", hopPayload.toString("hex"));
 
     // // Lets encrypt the payload
-    const enc = crypto2.chachaEncrypt(sharedSecret,Buffer.alloc(16),hopPayload);
+    const enc = crypto2.chachaEncrypt(
+      sharedSecret,
+      Buffer.alloc(16),
+      hopPayload
+    );
     console.log("encrypted_payload ", enc.toString("hex"));
 
     // This next part constructs the packet that will contain the data
