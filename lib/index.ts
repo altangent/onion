@@ -1,7 +1,6 @@
 import { BufferWriter } from "@node-lightning/bufio";
 import * as crypto from "@node-lightning/crypto";
 
-import * as ex1 from "./ex1";
 import * as ex2 from "./ex2";
 import * as ex3 from "./ex3";
 import * as ex4 from "./ex4";
@@ -40,13 +39,6 @@ let reader: (packet: Buffer, nodeKey?: Buffer) => Packet;
 let forward: (payload: Packet, nodeKey?: Buffer) => Buffer;
 
 switch (method) {
-  case "ex1": {
-    title = "Stupid Simple Example";
-    builder = ex1.build;
-    reader = ex1.read;
-    forward = ex1.forward;
-    break;
-  }
   case "ex2": {
     title = "HMAC Example";
     builder = ex2.build;
