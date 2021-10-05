@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "ts-node lib/index.ts",
-    "test": "mocha --require ts-node/register --recursive \"lib/**/*.spec.ts\""
+    "test": "mocha --bail --require ts-node/register --recursive \"lib/**/*.spec.ts\""
   },
   "keywords": [],
   "author": "",

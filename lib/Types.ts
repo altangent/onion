@@ -2,6 +2,9 @@ export type Packet = {
   version: number;
   payload: Payload;
   ephemeralPoint?: Buffer;
+  sharedSecret?: Buffer;
+  encryptedPayload?: Buffer;
+  decryptedPayload?: Buffer;
   hmac?: Buffer;
 };
 
